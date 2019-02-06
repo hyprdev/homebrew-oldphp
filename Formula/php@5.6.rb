@@ -469,8 +469,10 @@ diff --git a/Zend/zend_compile.h b/Zend/zend_compile.h
 index a0955e34fe..09b4984f90 100644
 --- a/Zend/zend_compile.h
 +++ b/Zend/zend_compile.h
-@@ -414,9 +414,6 @@ struct _zend_execute_data {
+@@ -414,7 +414,4 @@ struct _zend_execute_data {
+ 
  #define EX(element) execute_data.element
+ 
 -#define EX_TMP_VAR(ex, n)	   ((temp_variable*)(((char*)(ex)) + ((int)(n))))
 -#define EX_TMP_VAR_NUM(ex, n)  (EX_TMP_VAR(ex, 0) - (1 + (n)))
 -
