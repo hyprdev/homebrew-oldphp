@@ -457,6 +457,7 @@ index 168c465f8d..6c087d152f 100644
  dnl internal, don't use
 @@ -2411,7 +2419,8 @@ AC_DEFUN([PHP_SETUP_ICONV], [
      fi
+  
      if test -f $ICONV_DIR/$PHP_LIBDIR/lib$iconv_lib_name.a ||
 -       test -f $ICONV_DIR/$PHP_LIBDIR/lib$iconv_lib_name.$SHLIB_SUFFIX_NAME
 +       test -f $ICONV_DIR/$PHP_LIBDIR/lib$iconv_lib_name.$SHLIB_SUFFIX_NAME ||
