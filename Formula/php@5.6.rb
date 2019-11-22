@@ -1,18 +1,15 @@
 class PhpAT56 < Formula
-  desc "General-purpose scripting language"
+  desc "General-purpose scripting language / No HTTPD module"
   homepage "https://secure.php.net/"
-  url "https://php.net/get/php-5.6.39.tar.xz/from/this/mirror"
-  sha256 "8147576001a832ff3d03cb2980caa2d6b584a10624f87ac459fcd3948c6e4a10"
+  url "https://php.net/get/php-5.6.40.tar.xz/from/this/mirror"
+  sha256 "1369a51eee3995d7fbd1c5342e5cc917760e276d561595b6052b21ace2656d1c"
 
   keg_only :versioned_formula
 
-  depends_on "httpd" => [:build, :test]
   depends_on "pkg-config" => :build
-  depends_on "apr"
-  depends_on "apr-util"
   depends_on "aspell"
   depends_on "autoconf"
-  depends_on "curl-openssl"
+  depends_on "curl-openssl-one"
   depends_on "freetds"
   depends_on "freetype"
   depends_on "gettext"
@@ -26,7 +23,7 @@ class PhpAT56 < Formula
   depends_on "libzip"
   depends_on "mcrypt"
   depends_on "openldap"
-  depends_on "openssl"
+  depends_on "openssl@1.0"
   depends_on "pcre"
   depends_on "sqlite"
   depends_on "tidy-html5"
@@ -46,8 +43,6 @@ class PhpAT56 < Formula
     system "./buildconf", "--force"
 
     inreplace "configure" do |s|
-      s.gsub! "APACHE_THREADED_MPM=`$APXS_HTTPD -V | grep 'threaded:.*yes'`",
-              "APACHE_THREADED_MPM="
       s.gsub! "APXS_LIBEXECDIR='$(INSTALL_ROOT)'`$APXS -q LIBEXECDIR`",
               "APXS_LIBEXECDIR='$(INSTALL_ROOT)#{lib}/httpd/modules'"
       s.gsub! "-z `$APXS -q SYSCONFDIR`",
@@ -56,17 +51,6 @@ class PhpAT56 < Formula
       s.gsub! "LIBEXECDIR='$APXS_LIBEXECDIR'",
               "LIBEXECDIR='" + "#{lib}/httpd/modules".gsub("@", "\\@") + "'"
     end
-
-    # Update error message in apache sapi to better explain the requirements
-    # of using Apache http in combination with php if the non-compatible MPM
-    # has been selected. Homebrew has chosen not to support being able to
-    # compile a thread safe version of PHP and therefore it is not
-    # possible to recompile as suggested in the original message
-    inreplace "sapi/apache2handler/sapi_apache2.c",
-              "You need to recompile PHP.",
-              "Homebrew PHP does not support a thread-safe php binary. "\
-              "To use the PHP apache sapi please change "\
-              "your httpd config to use the prefork MPM"
 
     inreplace "sapi/fpm/php-fpm.conf.in", ";daemonize = yes", "daemonize = no"
 
@@ -117,9 +101,8 @@ class PhpAT56 < Formula
       --enable-sysvshm
       --enable-wddx
       --enable-zip
-      --with-apxs2=#{Formula["httpd"].opt_bin}/apxs
       --with-bz2#{headers_path}
-      --with-curl=#{Formula["curl-openssl"].opt_prefix}
+      --with-curl=#{Formula["curl-openssl-one"].opt_prefix}
       --with-fpm-user=_www
       --with-fpm-group=_www
       --with-freetype-dir=#{Formula["freetype"].opt_prefix}
@@ -142,7 +125,7 @@ class PhpAT56 < Formula
       --with-mysqli=mysqlnd
       --with-mysql=mysqlnd
       --with-ndbm#{headers_path}
-      --with-openssl=#{Formula["openssl"].opt_prefix}
+      --with-openssl=#{Formula["openssl@1.0"].opt_prefix}
       --with-pdo-dblib=#{Formula["freetds"].opt_prefix}
       --with-pdo-mysql=mysqlnd
       --with-pdo-odbc=unixODBC,#{Formula["unixodbc"].opt_prefix}
@@ -254,13 +237,6 @@ class PhpAT56 < Formula
 
   def caveats
     <<~EOS
-      To enable PHP in Apache add the following to httpd.conf and restart Apache:
-          LoadModule php5_module #{opt_lib}/httpd/modules/libphp5.so
-          <FilesMatch \\.php$>
-              SetHandler application/x-httpd-php
-          </FilesMatch>
-      Finally, check DirectoryIndex includes index.php
-          DirectoryIndex index.php index.html
       The php.ini and php-fpm.ini file can be found in:
           #{etc}/php/#{php_version}/
     EOS
@@ -310,95 +286,6 @@ class PhpAT56 < Formula
     # Prevent SNMP extension to be added
     assert_no_match /^snmp$/, shell_output("#{bin}/php -m"),
       "SNMP extension doesn't work reliably with Homebrew on High Sierra"
-    begin
-      require "socket"
-
-      server = TCPServer.new(0)
-      port = server.addr[1]
-      server_fpm = TCPServer.new(0)
-      port_fpm = server_fpm.addr[1]
-      server.close
-      server_fpm.close
-
-      expected_output = /^Hello world!$/
-      (testpath/"index.php").write <<~EOS
-        <?php
-        echo 'Hello world!' . PHP_EOL;
-        var_dump(ldap_connect());
-      EOS
-      main_config = <<~EOS
-        Listen #{port}
-        ServerName localhost:#{port}
-        DocumentRoot "#{testpath}"
-        ErrorLog "#{testpath}/httpd-error.log"
-        ServerRoot "#{Formula["httpd"].opt_prefix}"
-        PidFile "#{testpath}/httpd.pid"
-        LoadModule authz_core_module lib/httpd/modules/mod_authz_core.so
-        LoadModule unixd_module lib/httpd/modules/mod_unixd.so
-        LoadModule dir_module lib/httpd/modules/mod_dir.so
-        DirectoryIndex index.php
-      EOS
-
-      (testpath/"httpd.conf").write <<~EOS
-        #{main_config}
-        LoadModule mpm_prefork_module lib/httpd/modules/mod_mpm_prefork.so
-        LoadModule php5_module #{lib}/httpd/modules/libphp5.so
-        <FilesMatch \\.(php|phar)$>
-          SetHandler application/x-httpd-php
-        </FilesMatch>
-      EOS
-
-      (testpath/"fpm.conf").write <<~EOS
-        [global]
-        daemonize=no
-        [www]
-        listen = 127.0.0.1:#{port_fpm}
-        pm = dynamic
-        pm.max_children = 5
-        pm.start_servers = 2
-        pm.min_spare_servers = 1
-        pm.max_spare_servers = 3
-      EOS
-
-      (testpath/"httpd-fpm.conf").write <<~EOS
-        #{main_config}
-        LoadModule mpm_event_module lib/httpd/modules/mod_mpm_event.so
-        LoadModule proxy_module lib/httpd/modules/mod_proxy.so
-        LoadModule proxy_fcgi_module lib/httpd/modules/mod_proxy_fcgi.so
-        <FilesMatch \\.(php|phar)$>
-          SetHandler "proxy:fcgi://127.0.0.1:#{port_fpm}"
-        </FilesMatch>
-      EOS
-
-      pid = fork do
-        exec Formula["httpd"].opt_bin/"httpd", "-X", "-f", "#{testpath}/httpd.conf"
-      end
-      sleep 3
-
-      assert_match expected_output, shell_output("curl -s 127.0.0.1:#{port}")
-
-      Process.kill("TERM", pid)
-      Process.wait(pid)
-
-      fpm_pid = fork do
-        exec sbin/"php-fpm", "-y", "fpm.conf"
-      end
-      pid = fork do
-        exec Formula["httpd"].opt_bin/"httpd", "-X", "-f", "#{testpath}/httpd-fpm.conf"
-      end
-      sleep 3
-
-      assert_match expected_output, shell_output("curl -s 127.0.0.1:#{port}")
-    ensure
-      if pid
-        Process.kill("TERM", pid)
-        Process.wait(pid)
-      end
-      if fpm_pid
-        Process.kill("TERM", fpm_pid)
-        Process.wait(fpm_pid)
-      end
-    end
   end
 end
 
